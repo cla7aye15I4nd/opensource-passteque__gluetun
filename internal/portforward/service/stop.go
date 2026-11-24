@@ -27,6 +27,14 @@ func (s *Service) Stop() (err error) {
 
 	if portsEmpty && !keepPortRunning {
 		// TODO replace with goservices.ErrAlreadyStopped
+		// The keep port goroutine has crashed and cleaned the service up, and may
+		// still be waiting to report its failure on a run error channel nobody
+		// reads anymore. Nothing waits on the done channel from here, so the
+		// context is canceled to release the goroutine instead of leaving it
+		// parked on that send for the whole program life.
+		if s.keepPortCancel != nil {
+			s.keepPortCancel()
+		}
 		return nil
 	}
 
@@ -38,6 +46,9 @@ func (s *Service) Stop() (err error) {
 	// forwarding code support.
 	if s.keepPortCancel != nil {
 		s.keepPortCancel()
+		// The keep port goroutine closes the done channel without waiting for the
+		// start stop mutex held here, otherwise this wait could never be satisfied
+		// by a goroutine crashing at the same time as this call.
 		<-s.keepPortDoneCh
 	}
 
